@@ -428,3 +428,151 @@ svg.addEventListener('dblclick', e => {
 
 // Init
 setMode('select');
+
+
+// =====================================================================
+// DOWNLOAD PDF
+// =====================================================================
+async function downloadPDF() {
+  try {
+    // Mostrar mensaje de carga
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = '⏳ Generando...';
+    btn.disabled = true;
+
+    // Deseleccionar elementos para que no aparezcan con highlight
+    deselect();
+
+    // Resetear zoom para captura
+    const originalViewBox = svg.getAttribute('viewBox');
+    svg.setAttribute('viewBox', '0 0 760 660');
+
+    // Crear un canvas temporal para el SVG
+    const svgClone = svg.cloneNode(true);
+    const svgString = new XMLSerializer().serializeToString(svgClone);
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    // Crear imagen del SVG
+    const img = new Image();
+    img.src = svgUrl;
+
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+    });
+
+    // Crear canvas para el mapa
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 760;
+    canvas.height = 660;
+    
+    // Fondo del canvas
+    ctx.fillStyle = '#f9f5ee';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Dibujar SVG en canvas
+    ctx.drawImage(img, 0, 0);
+
+    // Capturar la leyenda
+    const legend = document.querySelector('.legend');
+    const legendCanvas = await html2canvas(legend, {
+      backgroundColor: '#fdfaf4',
+      scale: 2
+    });
+
+    // Crear PDF
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    // Dimensiones A4 landscape: 297mm x 210mm
+    const pageWidth = 297;
+    const pageHeight = 210;
+    const margin = 10;
+
+    // Agregar título
+    pdf.setFontSize(16);
+    pdf.setFont(undefined, 'bold');
+    pdf.text('CECACVI-BUAP', pageWidth / 2, margin, { align: 'center' });
+    
+    pdf.setFontSize(12);
+    pdf.setFont(undefined, 'normal');
+    pdf.text('Santa Ana Coatepec — Editor de Croquis', pageWidth / 2, margin + 7, { align: 'center' });
+
+    // Calcular dimensiones del mapa
+    const mapStartY = margin + 15;
+    const availableHeight = pageHeight - mapStartY - margin;
+    const availableWidth = pageWidth - margin * 2 - 50; // Dejar espacio para leyenda
+
+    // Agregar mapa
+    const mapAspectRatio = canvas.width / canvas.height;
+    let mapWidth = availableWidth;
+    let mapHeight = mapWidth / mapAspectRatio;
+
+    if (mapHeight > availableHeight) {
+      mapHeight = availableHeight;
+      mapWidth = mapHeight * mapAspectRatio;
+    }
+
+    const mapX = margin;
+    const mapY = mapStartY;
+
+    pdf.addImage(
+      canvas.toDataURL('image/png'),
+      'PNG',
+      mapX,
+      mapY,
+      mapWidth,
+      mapHeight
+    );
+
+    // Agregar leyenda al lado derecho
+    const legendX = mapX + mapWidth + 5;
+    const legendWidth = pageWidth - legendX - margin;
+    const legendHeight = (legendCanvas.height / legendCanvas.width) * legendWidth;
+
+    pdf.addImage(
+      legendCanvas.toDataURL('image/png'),
+      'PNG',
+      legendX,
+      mapY,
+      legendWidth,
+      Math.min(legendHeight, availableHeight)
+    );
+
+    // Agregar fecha
+    pdf.setFontSize(8);
+    pdf.setTextColor(100);
+    const fecha = new Date().toLocaleDateString('es-MX', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    pdf.text(`Generado: ${fecha}`, margin, pageHeight - 5);
+
+    // Descargar PDF
+    pdf.save(`croquis_${Date.now()}.pdf`);
+
+    // Limpiar
+    URL.revokeObjectURL(svgUrl);
+    svg.setAttribute('viewBox', originalViewBox);
+
+    // Restaurar botón
+    btn.textContent = originalText;
+    btn.disabled = false;
+
+  } catch (error) {
+    console.error('Error al generar PDF:', error);
+    alert('Error al generar el PDF. Por favor, intenta de nuevo.');
+    if (event && event.target) {
+      event.target.textContent = '📥 Descargar PDF';
+      event.target.disabled = false;
+    }
+  }
+}
